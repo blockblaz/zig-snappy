@@ -9,7 +9,7 @@ fn readFile(allocator: Allocator, path: []const u8) ![]u8 {
     var f = try fs.cwd().openFile(path, file.OpenFlags{ .mode = file.OpenMode.read_only });
     const fMetadata = try f.stat();
 
-    var output = try allocator.alloc(u8, fMetadata.size);
+    const output = try allocator.alloc(u8, fMetadata.size);
     errdefer allocator.free(output);
 
     _ = try f.readAll(output);
@@ -30,7 +30,7 @@ pub fn main() !void {
 
     // try stdout.print("{}", .{decoded});
 
-    var encInput = try readFile(allocator, "encode");
+    const encInput = try readFile(allocator, "encode");
     defer allocator.free(encInput);
 
     const encoded = try snappy.encode(allocator, encInput);

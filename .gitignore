@@ -1,3 +1,4 @@
 main*
 !main.zig
 zig-cache/
+.zig-cache/
