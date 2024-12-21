@@ -37,7 +37,7 @@ const SnappyError = error{
 
 // Perform the CRC hash per the snappy documentation. We must use wrapping addition since this is
 // the default behavior in other languages.
-fn crc(b: []const u8) u32 {
+pub fn crc(b: []const u8) u32 {
     var c = crc32.init();
     c.update(b);
     const hash = c.final();
