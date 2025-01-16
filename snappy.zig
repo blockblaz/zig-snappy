@@ -412,7 +412,7 @@ fn encodeBlock(dst: []u8, src: []u8) usize {
 }
 
 /// Encode returns the encoded form of the source input. The returned slice must be freed.
-pub fn encode(allocator: Allocator, src: []u8) ![]u8 {
+pub fn encode(allocator: Allocator, src: []const u8) ![]u8 {
     var mutSrc = src;
     const encodedLen = maxEncodedLen(mutSrc.len);
     if (encodedLen < 0) {
