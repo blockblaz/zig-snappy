@@ -1,5 +1,7 @@
 .{
-    .name = "zig-snappy",
+    .name = .zig_snappy,
     .version = "0.0.1",
     .paths = .{""},
+    .min_zig_version = "0.14.0",
+    .fingerprint = 0x87ab843f5e73316c,
 }
