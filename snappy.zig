@@ -274,8 +274,8 @@ fn emitLiteral(dst: []u8, lit: []const u8) usize {
         },
         else => {
             dst[0] = 61 << 2 | tagLiteral;
-            dst[1] = @as(u8, @intCast(n));
-            dst[2] = @as(u8, @intCast(n >> 8));
+            dst[1] = @as(u8, @truncate(n));
+            dst[2] = @as(u8, @truncate(n >> 8));
             i = 3;
         },
     }
