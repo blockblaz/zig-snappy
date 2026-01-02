@@ -499,3 +499,42 @@ test "simple decode" {
 
     try testing.expectEqualSlices(u8, decoded, "oh snap, snappy is cool!\n");
 }
+
+test "emit literal length > 255" {
+    var lit: [300]u8 = undefined;
+    for (&lit, 0..) |*b, i| {
+        b.* = @as(u8, @truncate(i * 31 + 7));
+    }
+
+    var dst: [320]u8 = undefined;
+    const written = emitLiteral(&dst, &lit);
+
+    const n: u32 = lit.len - 1;
+    try testing.expectEqual(@as(usize, 3 + lit.len), written);
+    try testing.expectEqual(@as(u8, 61 << 2 | tagLiteral), dst[0]);
+    try testing.expectEqual(@as(u8, @intCast(n & 0xff)), dst[1]);
+    try testing.expectEqual(@as(u8, @intCast(n >> 8)), dst[2]);
+    try testing.expectEqualSlices(u8, lit[0..], dst[3 .. 3 + lit.len]);
+}
+
+test "emit literal length > 65535" {
+    const allocator = testing.allocator;
+    const lit_len: usize = 70000;
+    var lit = try allocator.alloc(u8, lit_len);
+    defer allocator.free(lit);
+    for (lit, 0..) |*b, i| {
+        b.* = @as(u8, @truncate(i * 13 + 5));
+    }
+
+    const n: u32 = @as(u32, @intCast(lit.len - 1));
+    var dst = try allocator.alloc(u8, 4 + lit.len);
+    defer allocator.free(dst);
+    const written = emitLiteral(dst, lit);
+
+    try testing.expectEqual(@as(usize, 4 + lit.len), written);
+    try testing.expectEqual(@as(u8, 62 << 2 | tagLiteral), dst[0]);
+    try testing.expectEqual(@as(u8, @intCast(n & 0xff)), dst[1]);
+    try testing.expectEqual(@as(u8, @intCast((n >> 8) & 0xff)), dst[2]);
+    try testing.expectEqual(@as(u8, @intCast(n >> 16)), dst[3]);
+    try testing.expectEqualSlices(u8, lit[0..], dst[4 .. 4 + lit.len]);
+}
