@@ -261,23 +261,32 @@ pub fn decode(allocator: Allocator, src: []const u8) ![]u8 {
 // TODO: Split up encode and decode into separate files once I better understand modules.
 fn emitLiteral(dst: []u8, lit: []const u8) usize {
     var i: usize = 0;
-    const n = @as(usize, @intCast(lit.len - 1));
-    switch (n) {
-        0...59 => {
-            dst[0] = @as(u8, @intCast(n)) << 2 | tagLiteral;
-            i = 1;
-        },
-        60...255 => {
-            dst[0] = 60 << 2 | tagLiteral;
-            dst[1] = @as(u8, @intCast(n));
-            i = 2;
-        },
-        else => {
-            dst[0] = 61 << 2 | tagLiteral;
-            dst[1] = @as(u8, @truncate(n));
-            dst[2] = @as(u8, @truncate(n >> 8));
-            i = 3;
-        },
+    const n = @as(u32, @intCast(lit.len - 1));
+    if (n < 60) {
+        dst[0] = @as(u8, @intCast(n)) << 2 | tagLiteral;
+        i = 1;
+    } else if (n < (1 << 8)) {
+        dst[0] = 60 << 2 | tagLiteral;
+        dst[1] = @as(u8, @intCast(n));
+        i = 2;
+    } else if (n < (1 << 16)) {
+        dst[0] = 61 << 2 | tagLiteral;
+        dst[1] = @as(u8, @intCast(n & 0xff));
+        dst[2] = @as(u8, @intCast(n >> 8));
+        i = 3;
+    } else if (n < (1 << 24)) {
+        dst[0] = 62 << 2 | tagLiteral;
+        dst[1] = @as(u8, @intCast(n & 0xff));
+        dst[2] = @as(u8, @intCast((n >> 8) & 0xff));
+        dst[3] = @as(u8, @intCast(n >> 16));
+        i = 4;
+    } else {
+        dst[0] = 63 << 2 | tagLiteral;
+        dst[1] = @as(u8, @intCast(n & 0xff));
+        dst[2] = @as(u8, @intCast((n >> 8) & 0xff));
+        dst[3] = @as(u8, @intCast((n >> 16) & 0xff));
+        dst[4] = @as(u8, @intCast(n >> 24));
+        i = 5;
     }
     std.mem.copyForwards(u8, dst[i..], lit);
 
