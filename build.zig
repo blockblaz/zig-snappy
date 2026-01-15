@@ -21,15 +21,13 @@ pub fn build(b: *Builder) void {
         .target = target,
         .optimize = optimize,
     });
-    _ = mod;
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "snappyz",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .cwd_relative = "snappy.zig" },
-        .optimize = optimize,
-        .target = target,
+        .root_module = mod,
+        .linkage = .static,
     });
 
     // This declares intent for the library to be installed into the standard
@@ -40,9 +38,7 @@ pub fn build(b: *Builder) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const tests = b.addTest(.{
-        .root_source_file = .{ .cwd_relative = "snappy.zig" },
-        .optimize = optimize,
-        .target = target,
+        .root_module = mod,
     });
 
     const run_tests = b.addRunArtifact(tests);
