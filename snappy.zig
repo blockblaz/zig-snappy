@@ -434,14 +434,11 @@ pub fn encode(allocator: Allocator, src: []const u8) ![]u8 {
     var d = putUvarint(dst, @as(u64, @intCast(mutSrc.len)));
 
     while (mutSrc.len > 0) {
-        var p = try allocator.alloc(u8, mutSrc.len);
-        std.mem.copyForwards(u8, p, mutSrc);
-        var empty = [_]u8{};
-        mutSrc = empty[0..];
-        if (p.len > maxBlockSize) {
-            mutSrc = p[maxBlockSize..];
-            p = p[0..maxBlockSize];
-        }
+        const chunk_len = @min(mutSrc.len, maxBlockSize);
+        const p = try allocator.alloc(u8, chunk_len);
+        std.mem.copyForwards(u8, p, mutSrc[0..chunk_len]);
+        mutSrc = mutSrc[chunk_len..];
+
         if (p.len < minNonLiteralBlockSize) {
             d += emitLiteral(dst[d..], p);
         } else {
@@ -546,4 +543,32 @@ test "emit literal length > 65535" {
     try testing.expectEqual(@as(u8, @intCast((n >> 8) & 0xff)), dst[2]);
     try testing.expectEqual(@as(u8, @intCast(n >> 16)), dst[3]);
     try testing.expectEqualSlices(u8, lit[0..], dst[4 .. 4 + lit.len]);
+}
+
+test "encode larger than maxBlockSize" {
+    // This test verifies that encoding data larger than maxBlockSize (65536 bytes)
+    // correctly handles memory allocation. Previously, the encode function would
+    // allocate the full remaining size, then shrink the slice before freeing,
+    // causing an allocation size mismatch error.
+    const allocator = testing.allocator;
+
+    // Create input larger than maxBlockSize (65536) to trigger chunking
+    const input_size = 100_000;
+    const input = try allocator.alloc(u8, input_size);
+    defer allocator.free(input);
+
+    // Fill with pattern
+    for (input, 0..) |*b, i| {
+        b.* = @as(u8, @truncate(i));
+    }
+
+    // Encode - this would fail with allocation mismatch on buggy implementation
+    const encoded = try encode(allocator, input);
+    defer allocator.free(encoded);
+
+    // Decode and verify roundtrip
+    const decoded = try decode(allocator, encoded);
+    defer allocator.free(decoded);
+
+    try testing.expectEqualSlices(u8, input, decoded);
 }
