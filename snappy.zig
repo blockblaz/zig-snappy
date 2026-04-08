@@ -258,6 +258,29 @@ pub fn decode(allocator: Allocator, src: []const u8) ![]u8 {
     return dst;
 }
 
+/// Like decode, but returns error.TooLarge without allocating if the declared decompressed
+/// length exceeds max_size.  Pass the protocol's maximum allowed payload size to reject
+/// oversized payloads from malicious peers before any heap allocation occurs.
+pub fn decodeWithMax(allocator: Allocator, src: []const u8, max_size: usize) ![]u8 {
+    const block = try decodedLen(src);
+
+    if (block.blockLen > max_size) {
+        return SnappyError.TooLarge;
+    }
+
+    const dst = try allocator.alloc(u8, block.blockLen);
+    errdefer allocator.free(dst);
+
+    // Skip past how many bytes we read to get the length.
+    const s = src[block.headerLen..];
+
+    if (runDecode(dst, s) != 0) {
+        return SnappyError.Corrupt;
+    }
+
+    return dst;
+}
+
 // TODO: Split up encode and decode into separate files once I better understand modules.
 fn emitLiteral(dst: []u8, lit: []const u8) usize {
     var i: usize = 0;
