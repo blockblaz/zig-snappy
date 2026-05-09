@@ -53,21 +53,30 @@ const Varint = struct {
 
 // https://golang.org/pkg/encoding/binary/#Uvarint
 fn uvarint(buf: []const u8) Varint {
+    // A 64-bit varint occupies at most 10 bytes; a well-formed terminator on the
+    // 10th byte must encode at most 1 bit of data. Anything else is malformed and
+    // would overflow a u64. Returning `bytesRead == 0` signals "corrupt or
+    // incomplete" to callers (matches the existing `decodedLen` check).
     var x: u64 = 0;
     var s: u6 = 0; // We can shift a maximum of 2^6 (64) times.
 
     for (buf, 0..) |b, i| {
         if (b < 0x80) {
-            if (i > 9 or i == 9 and b > 1) {
-                return Varint{
-                    .value = 0,
-                    .bytesRead = -%i + 1,
-                };
+            if (i > 9 or (i == 9 and b > 1)) {
+                // 10th byte sets bits beyond u64 — overflow.
+                return Varint{ .value = 0, .bytesRead = 0 };
             }
             return Varint{
                 .value = x | (@as(u64, b) << s),
                 .bytesRead = i + 1,
             };
+        }
+        // After 10 continuation bytes a varint can no longer be valid (would
+        // exceed 64 bits). Reject before `s += 7` overflows the u6 shift count.
+        // Without this guard, 10+ bytes of 0x80+ (e.g. 1024 bytes of 0xef from
+        // a malformed gossip payload) panic with integer overflow.
+        if (i >= 9) {
+            return Varint{ .value = 0, .bytesRead = 0 };
         }
         x |= (@as(u64, b & 0x7f) << s);
         s += 7;
@@ -103,7 +112,9 @@ const SnappyBlock = struct {
 // Return the length of the decoded block and the number of bytes that the header occupied.
 fn decodedLen(src: []const u8) !SnappyBlock {
     const varint = uvarint(src);
-    if (varint.bytesRead <= 0 or varint.value > 0xffffffff) {
+    // `bytesRead == 0` means uvarint either ran out of input without a terminator
+    // or detected a u64 overflow; both are corrupt headers.
+    if (varint.bytesRead == 0 or varint.value > 0xffffffff) {
         return SnappyError.Corrupt;
     }
 
@@ -506,6 +517,55 @@ test "decoding variable integers" {
     const case2 = uvarint(&[_]u8{ 0xfe, 0xff, 0x7f });
     try testing.expect(case2.value == 2097150);
     try testing.expect(case2.bytesRead == 3);
+}
+
+test "uvarint rejects long continuation runs without overflow" {
+    // Regression: 1024 bytes of 0xef previously panicked with `integer overflow`
+    // because `s += 7` walked past the u6 shift count. Must now return the
+    // corrupt sentinel (`bytesRead == 0`) instead of panicking.
+    const garbage = [_]u8{0xef} ** 1024;
+    const v = uvarint(&garbage);
+    try testing.expectEqual(@as(usize, 0), v.bytesRead);
+    try testing.expectEqual(@as(u64, 0), v.value);
+
+    // Exactly 10 continuation bytes is also malformed (no terminator at all).
+    const ten_continuations = [_]u8{0xff} ** 10;
+    const v2 = uvarint(&ten_continuations);
+    try testing.expectEqual(@as(usize, 0), v2.bytesRead);
+
+    // 11 continuation bytes followed by a valid terminator: still malformed,
+    // because the varint exceeded the 10-byte u64 budget before terminating.
+    var eleven: [12]u8 = undefined;
+    @memset(eleven[0..11], 0xff);
+    eleven[11] = 0x01;
+    const v3 = uvarint(&eleven);
+    try testing.expectEqual(@as(usize, 0), v3.bytesRead);
+
+    // Boundary: 10th byte with high bit clear and value > 1 is overflow.
+    var ten_overflow = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02 };
+    const v4 = uvarint(&ten_overflow);
+    try testing.expectEqual(@as(usize, 0), v4.bytesRead);
+
+    // Boundary: 10th byte with value == 1 is the largest valid u64.
+    var max_u64 = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01 };
+    const v5 = uvarint(&max_u64);
+    try testing.expectEqual(@as(usize, 10), v5.bytesRead);
+    try testing.expectEqual(@as(u64, std.math.maxInt(u64)), v5.value);
+
+    // Empty buffer is incomplete, not corrupt-by-overflow, but still signals
+    // bytesRead == 0 (no data consumed).
+    const empty = [_]u8{};
+    const v6 = uvarint(&empty);
+    try testing.expectEqual(@as(usize, 0), v6.bytesRead);
+}
+
+test "decode rejects garbage with long continuation run" {
+    // Regression for blockblaz/zeam Hive `gossip: ignores malformed ssz`:
+    // 1024 bytes of 0xef on a valid gossip topic must not panic the client.
+    const allocator = testing.allocator;
+    const garbage = [_]u8{0xef} ** 1024;
+    try testing.expectError(SnappyError.Corrupt, decode(allocator, &garbage));
+    try testing.expectError(SnappyError.Corrupt, decodeWithMax(allocator, &garbage, 16 * 1024 * 1024));
 }
 
 test "simple encode" {
